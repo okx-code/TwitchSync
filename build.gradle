@@ -1,0 +1,38 @@
+group 'me.okx.twitchsync'
+version '1.4.1'
+
+buildscript {
+    repositories {
+        maven {
+            url 'https://plugins.gradle.org/m2/'
+        }
+    }
+    dependencies {
+        classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.1'
+    }
+}
+
+apply plugin: 'com.github.johnrengelman.shadow'
+apply plugin: 'java'
+
+shadowJar {
+    classifier = null
+}
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+    maven {
+        url 'http://nexus.hc.to/content/repositories/pub_releases'
+    }
+    maven {
+        url 'https://hub.spigotmc.org/nexus/content/groups/public/'
+    }
+}
+
+dependencies {
+    compile 'com.okta.jwt:okta-jwt-verifier:+'
+    shadow 'org.spigotmc:spigot-api:1.12-R0.1-SNAPSHOT'
+    shadow 'net.milkbowl.vault:VaultAPI:+'
+}

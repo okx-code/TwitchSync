@@ -1,0 +1,77 @@
+# The channel name(s) to check for subscription/follows.
+channel-names:
+- required
+
+# The client ID given by Twitch.
+client-id: required
+
+# The client secret given by Twitch. Remember not to tell anyone this!
+client-secret: required
+
+# Port to host the HTTP server on
+server-port: 8080
+
+# Redirect URI for Twitch authentication. This has to be set as the same as Twitch
+redirect-uri: http://localhost:8080
+
+# How many minutes it takes for twitch sync URLs to expire.
+expiry-time: 10
+
+# Note that these messages are sent by the web server and use HTML, not chat formatting.
+messages:
+  subscription:
+    no-subscription-program: "The channel does not have a subscription program set up."
+    success: "You have successfully received the Twitch subscription rewards."
+  follow:
+    success: "You have successfully received the Twitch following rewards."
+  success-both: "You have received both the following and subscription rewards."
+
+  # If you have subscription or following rewards disabled you might want to change this
+  # to say "You are not following" or "You are not subscribed" to make it clear
+  # that it's only possible to get rewards for one thing
+  not-both: "You are neither subscribed or are following the channel."
+  already-done: "You have already redeemed subscription and/or follow rewards."
+
+  state-not-found: "This link has either expired, or already been used."
+  player-not-found: "We cannot find you on the server. Are you online?"
+  invalid-url: "The URL is invalid"
+  unknown-error: "An unknown error occurred. Please try again."
+
+# revoke subscriber/follow rewards every X days
+# this will remove the rank and run revoke-commands
+revoke-interval-days: 1
+
+# What to do when somebody subscribes
+subscribe:
+  enabled: true
+
+  # Rank to give a player. Only used if Vault and a permissions plugin is installed.
+  # Set to 'none' to disable.
+  rank: 'Subscriber'
+
+  # Commands to execute.
+  # You can use the following placeholders:
+  # %name% - name of the player who subscribed
+  # %channel% - channel their subscription is registered to
+  # %channelid% - channel id of %channel%
+  commands:
+  - 'broadcast %name% has subscribed!'
+  - 'give %name% diamond 1'
+
+  # commands to run when a player is no longer subscribed
+  # this only supports the %name% placeholder
+  revoke-commands:
+  - 'give %name% dirt 1'
+# What to do when somebody follows
+follow:
+  enabled: true
+  rank: 'Follower'
+  commands:
+  - 'broadcast %name% has followed the channel!'
+
+  revoke-commands:
+  - 'broadcast %name% has unfollowed :('
+# Enable debugging information.
+# If you encounter an unexpected error please enable this
+# and send the results to the dev!
+debug-mode: false

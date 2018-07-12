@@ -1,0 +1,22 @@
+name: TwitchSync
+main: me.okx.twitchsync.TwitchSync
+version: 1.4
+
+author: Okx
+description: Give rewards to Twitch subscribers or followers.
+
+softdepend: [Vault]
+
+commands:
+  twitchsync:
+    description: Sync to twitch
+    permission: twitch.commandsync
+  revoke:
+    description: Run revoke commands for players who are no longer following or subscribed
+    permission: twitch.revoke
+
+permissions:
+  twitch.commandsync:
+    default: true
+  twitch.revoke:
+    default: op
