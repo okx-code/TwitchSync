@@ -1,6 +1,6 @@
 name: TwitchSync
 main: me.okx.twitchsync.TwitchSync
-version: 1.4
+version: 1.4.1
 
 author: Okx
 description: Give rewards to Twitch subscribers or followers.

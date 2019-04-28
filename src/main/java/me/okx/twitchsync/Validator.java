@@ -3,11 +3,16 @@ package me.okx.twitchsync;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.gson.Gson;
-import com.nimbusds.oauth2.sdk.ParseException;
-import com.okta.jwt.JoseException;
-import com.okta.jwt.Jwt;
-import com.okta.jwt.JwtHelper;
-import com.okta.jwt.JwtVerifier;
+import com.google.gson.JsonElement;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.proc.BadJOSEException;
+import com.nimbusds.jwt.JWT;
+import com.nimbusds.jwt.JWTParser;
+import com.nimbusds.oauth2.sdk.id.ClientID;
+import com.nimbusds.oauth2.sdk.id.Issuer;
+import com.nimbusds.openid.connect.sdk.claims.IDTokenClaimsSet;
+import com.nimbusds.openid.connect.sdk.validators.IDTokenValidator;
 import me.okx.twitchsync.data.CheckState;
 import me.okx.twitchsync.data.MessageWithId;
 import me.okx.twitchsync.data.StateWithId;
@@ -29,6 +34,8 @@ import org.bukkit.entity.Player;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.net.URL;
+import java.text.ParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -75,7 +82,7 @@ public class Validator {
     }
 
     Map<Integer, String> channels = new HashMap<>();
-    for(User user : users.getUsers()) {
+    for (User user : users.getUsers()) {
       channels.put(user.getId(), user.getName());
     }
     return channels;
@@ -106,7 +113,7 @@ public class Validator {
     Optional<Boolean> following = plugin.getSqlHelper().isFollowing(uuid);
     Optional<Boolean> subscribed = plugin.getSqlHelper().isSubscribed(uuid);
 
-    if(!subscribed.isPresent() || !following.isPresent()) {
+    if (!subscribed.isPresent() || !following.isPresent()) {
       return new SyncResponseFailure(SyncMessage.UNKNOWN_ERROR);
     }
 
@@ -119,7 +126,7 @@ public class Validator {
     AccessToken token;
     try {
       token = plugin.debug(getAccessToken(code));
-    } catch(Exception ex) {
+    } catch (Exception ex) {
       plugin.debug(ex);
       return new SyncResponseFailure(SyncMessage.UNKNOWN_ERROR);
     }
@@ -131,7 +138,7 @@ public class Validator {
 
       MessageWithId subscriptionMessage = getSubscriptionMessage(userId, token);
       if (subscriptionMessage.getMessage() == SyncMessage.SUBSCRIPTION_SUCCESS) {
-        if(plugin.debug(subscribed.get(), "Subscribed")) {
+        if (plugin.debug(subscribed.get(), "Subscribed")) {
           subscriptionMessage.setMessage(SyncMessage.ALREADY_DONE);
         } else {
           Bukkit.getScheduler().runTask(plugin, () ->
@@ -143,7 +150,7 @@ public class Validator {
 
       MessageWithId followingMessage = getFollowingMessage(userId, token);
       if (followingMessage.getMessage() == SyncMessage.FOLLOW_SUCCESS) {
-        if(plugin.debug(following.get(), "Followed")) {
+        if (plugin.debug(following.get(), "Followed")) {
           followingMessage.setMessage(SyncMessage.ALREADY_DONE);
         } else {
           Bukkit.getScheduler().runTask(plugin, () ->
@@ -218,16 +225,34 @@ public class Validator {
     return gson.fromJson(reader, AccessToken.class);
   }
 
-  private String getUserId(AccessToken token) throws IOException, ParseException, JoseException {
+  private String getUserId(AccessToken token) throws IOException, ParseException, BadJOSEException, JOSEException {
+    /*AccessTokenVerifier verifier = JwtVerifiers.accessTokenVerifierBuilder()
+        .setIssuer("https://id.twitch.tv/oauth2/keys")
+        .setConnectionTimeout(Duration.ofSeconds(2)) // defaults to 1000ms
+        .setReadTimeout(Duration.ofSeconds(1))       // defaults to 1000ms
+        .build();
     JwtVerifier verifier = new JwtHelper()
         .setIssuerUrl("https://id.twitch.tv/oauth2")
         .setConnectionTimeout(2000)
         .setReadTimeout(2000)
         .setClientId(plugin.getConfig().getString("client-id"))
         .build();
+    Jwt jwt = verifier.decode(token.getIdToken());
+    plugin.debug(jwt.getClaims(), "claims");
+    return (String) jwt.getClaims().get("sub");*/
 
-    Jwt jwt = verifier.decodeIdToken(token.getIdToken(), null);
-    return (String) jwt.getClaims().get("sub");
+    Issuer iss = new Issuer("https://id.twitch.tv/oauth2");
+    ClientID clientID = new ClientID(plugin.getConfig().getString("client-id"));
+    JWSAlgorithm jwsAlg = JWSAlgorithm.RS256;
+    URL jwkSetURL = new URL("https://id.twitch.tv/oauth2/keys");
+
+    IDTokenValidator validator = new IDTokenValidator(iss, clientID, jwsAlg, jwkSetURL);
+    JWT idToken = JWTParser.parse(token.getIdToken());
+
+    IDTokenClaimsSet claims;
+
+    claims = validator.validate(idToken, null);
+    return claims.getSubject().getValue();
   }
 
   public Stream<StateWithId> getSubscriptionState(String userId, AccessToken token) {
@@ -252,21 +277,15 @@ public class Validator {
 
   private StateWithId getIndividualState(Map<String, String> headers, String url, int channelId) {
     InputStreamReader reader = WebUtil.getURL(url + channelId, headers);
+    JsonElement json = gson.fromJson(reader, JsonElement.class);
 
-    ChannelObject object = gson.fromJson(reader, ChannelObject.class);
+    ChannelObject object = gson.fromJson(json, ChannelObject.class);
     if (object.isValid()) {
       return new StateWithId(CheckState.YES, channelId);
     }
 
-    try {
-      reader.reset();
-    } catch (IOException e) {
-      e.printStackTrace();
-      return new StateWithId(CheckState.ERROR, channelId);
-    }
-
     // user is not subscribed
-    CheckError error = gson.fromJson(reader, CheckError.class);
+    CheckError error = gson.fromJson(json, CheckError.class);
     switch (error.getStatus()) {
       case 404:
         return new StateWithId(CheckState.NO, channelId);
