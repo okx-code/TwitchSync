@@ -34,7 +34,7 @@ public class PlayerListener implements Listener {
 
     String group = config.getString("rank");
     if (!group.equalsIgnoreCase("none") && plugin.getPerms() != null) {
-      plugin.getPerms().playerAddGroup(player, group);
+      plugin.getPerms().playerAddGroup(null, player, group);
     }
 
     for (String command : config.getStringList("commands")) {

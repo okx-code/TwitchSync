@@ -88,7 +88,7 @@ public class TwitchSync extends JavaPlugin {
 
   public <T> T debug(T message, String label) {
     if (getConfig().getBoolean("debug-mode")) {
-      getLogger().log(Level.INFO, label + ": " + String.valueOf(message));
+      getLogger().log(Level.INFO, label + ": " + message);
     }
     return message;
   }
