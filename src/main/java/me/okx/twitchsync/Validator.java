@@ -13,9 +13,7 @@ import com.nimbusds.oauth2.sdk.id.ClientID;
 import com.nimbusds.oauth2.sdk.id.Issuer;
 import com.nimbusds.openid.connect.sdk.claims.IDTokenClaimsSet;
 import com.nimbusds.openid.connect.sdk.validators.IDTokenValidator;
-import me.okx.twitchsync.data.CheckState;
-import me.okx.twitchsync.data.MessageWithId;
-import me.okx.twitchsync.data.StateWithId;
+import me.okx.twitchsync.data.*;
 import me.okx.twitchsync.data.json.AccessToken;
 import me.okx.twitchsync.data.json.ChannelObject;
 import me.okx.twitchsync.data.json.CheckError;
@@ -29,6 +27,7 @@ import me.okx.twitchsync.events.PlayerFollowEvent;
 import me.okx.twitchsync.events.PlayerSubscriptionEvent;
 import me.okx.twitchsync.util.WebUtil;
 import org.bukkit.Bukkit;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 
 import java.io.IOException;
@@ -36,19 +35,16 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.net.URL;
 import java.text.ParseException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Validator {
   private Gson gson = new Gson();
-  private Map<Integer, String> channels;
+  private Map<Integer, Channel> channels;
   private TwitchSync plugin;
   private Cache<UUID, UUID> userStates;
 
@@ -58,22 +54,30 @@ public class Validator {
         .build();
     this.plugin = plugin;
     CompletableFuture.runAsync(() -> {
-      this.channels = getChannelIds(plugin.getConfig().getStringList("channel-names"));
+      List<Channel> channelList = new ArrayList<>();
+      ConfigurationSection channelConfig = plugin.getConfig().getConfigurationSection("channels");
+      if (channelConfig != null) {
+        Set<String> channelNames = channelConfig.getKeys(false);
+        for (String name : channelNames) {
+          channelList.add(channelConfig.getObject(name, Channel.class));
+        }
+      }
+      this.channels = getChannelMap(channelList);
     });
   }
 
-  public String getChannelName(int channelId) {
+  public Channel getChannel(int channelId) {
     return channels.get(channelId);
   }
 
-  private Map<Integer, String> getChannelIds(List<String> channelNames) {
+  private Map<Integer, Channel> getChannelMap(List<Channel> channels) {
     Map<String, String> headers = new HashMap<>();
 
     headers.put("Client-ID", plugin.getConfig().getString("client-id"));
     headers.put("Accept", "application/vnd.twitchtv.v5+json");
 
     Reader reader = WebUtil.getURL("https://api.twitch.tv/kraken/users?login="
-        + String.join(",", channelNames), headers);
+        + channels.stream().map(Channel::getName).collect(Collectors.joining(",")), headers);
     Users users = plugin.debug(gson.fromJson(reader, Users.class), "Users");
 
     if (users.getTotal() == 0) {
@@ -81,11 +85,11 @@ public class Validator {
       return null;
     }
 
-    Map<Integer, String> channels = new HashMap<>();
+    Map<Integer, Channel> channelMap = new HashMap<>();
     for (User user : users.getUsers()) {
-      channels.put(user.getId(), user.getName());
+      channelMap.put(user.getId(), channels.stream().filter(c -> c.getName().equals(user.getName())).findFirst().get());
     }
-    return channels;
+    return channelMap;
   }
 
   public String createAuthenticationUrl(UUID user) {
@@ -100,6 +104,7 @@ public class Validator {
         "&state=" + uuid;
   }
 
+  /*
   public SyncResponse sync(UUID withState, String code) {
     plugin.debug("States: " + userStates.asMap());
 
@@ -168,16 +173,31 @@ public class Validator {
       return null;
     }
   }
+  */
+
+  private String getUserId(AccessToken token) throws IOException, ParseException, BadJOSEException, JOSEException {
+
+    Issuer iss = new Issuer("https://id.twitch.tv/oauth2");
+    ClientID clientID = new ClientID(plugin.getConfig().getString("client-id"));
+    JWSAlgorithm jwsAlg = JWSAlgorithm.RS256;
+    URL jwkSetURL = new URL("https://id.twitch.tv/oauth2/keys");
+
+    IDTokenValidator validator = new IDTokenValidator(iss, clientID, jwsAlg, jwkSetURL);
+    JWT idToken = JWTParser.parse(token.getIdToken());
+
+    IDTokenClaimsSet claims;
+
+    claims = validator.validate(idToken, null);
+    return claims.getSubject().getValue();
+  }
 
   private MessageWithId getSubscriptionMessage(String userId, AccessToken token) {
     try {
-      StateWithId subscriptionState = plugin.debug(
-          getSubscriptionState(userId, token).sorted().findFirst().get(),
-          "Subscribe state");
+      Stream<StateWithId> subscriptionState = getSubscriptionState(userId, token).sorted();
 
       return new MessageWithId(
-          mapState(subscriptionState.getState(), SyncMessage.SUBSCRIPTION_SUCCESS),
-          subscriptionState.getId());
+          mapState(subscriptionState.findFirst().get().getState(), SyncMessage.SUBSCRIPTION_SUCCESS),
+          subscriptionState.findFirst().get().getId());
     } catch (Exception ex) {
       // TODO: More information based on error type
       plugin.debug(ex);
@@ -225,36 +245,6 @@ public class Validator {
     return gson.fromJson(reader, AccessToken.class);
   }
 
-  private String getUserId(AccessToken token) throws IOException, ParseException, BadJOSEException, JOSEException {
-    /*AccessTokenVerifier verifier = JwtVerifiers.accessTokenVerifierBuilder()
-        .setIssuer("https://id.twitch.tv/oauth2/keys")
-        .setConnectionTimeout(Duration.ofSeconds(2)) // defaults to 1000ms
-        .setReadTimeout(Duration.ofSeconds(1))       // defaults to 1000ms
-        .build();
-    JwtVerifier verifier = new JwtHelper()
-        .setIssuerUrl("https://id.twitch.tv/oauth2")
-        .setConnectionTimeout(2000)
-        .setReadTimeout(2000)
-        .setClientId(plugin.getConfig().getString("client-id"))
-        .build();
-    Jwt jwt = verifier.decode(token.getIdToken());
-    plugin.debug(jwt.getClaims(), "claims");
-    return (String) jwt.getClaims().get("sub");*/
-
-    Issuer iss = new Issuer("https://id.twitch.tv/oauth2");
-    ClientID clientID = new ClientID(plugin.getConfig().getString("client-id"));
-    JWSAlgorithm jwsAlg = JWSAlgorithm.RS256;
-    URL jwkSetURL = new URL("https://id.twitch.tv/oauth2/keys");
-
-    IDTokenValidator validator = new IDTokenValidator(iss, clientID, jwsAlg, jwkSetURL);
-    JWT idToken = JWTParser.parse(token.getIdToken());
-
-    IDTokenClaimsSet claims;
-
-    claims = validator.validate(idToken, null);
-    return claims.getSubject().getValue();
-  }
-
   public Stream<StateWithId> getSubscriptionState(String userId, AccessToken token) {
     return getStates(userId, token, "subscriptions");
   }
@@ -269,31 +259,31 @@ public class Validator {
     headers.put("Accept", "application/vnd.twitchtv.v5+json");
     headers.put("Authorization", "OAuth " + token.getAccessToken());
 
-    return channels.keySet().stream()
-        .map(channelId -> getIndividualState(headers,
-            "https://api.twitch.tv/kraken/users/" + userId + "/" + type + "/", channelId))
+    return channels.entrySet().stream()
+        .map(entry -> getIndividualState(entry.getValue(), headers,
+            "https://api.twitch.tv/kraken/users/" + userId + "/" + type + "/", entry.getKey()))
         .peek(s -> plugin.debug(s, "Peek"));
   }
 
-  private StateWithId getIndividualState(Map<String, String> headers, String url, int channelId) {
+  private StateWithId getIndividualState(Channel channel, Map<String, String> headers, String url, int channelId) {
     InputStreamReader reader = WebUtil.getURL(url + channelId, headers);
     JsonElement json = gson.fromJson(reader, JsonElement.class);
 
     ChannelObject object = gson.fromJson(json, ChannelObject.class);
     if (object.isValid()) {
-      return new StateWithId(CheckState.YES, channelId);
+      return new StateWithId(CheckState.YES, channel, channelId);
     }
 
     // user is not subscribed
     CheckError error = gson.fromJson(json, CheckError.class);
     switch (error.getStatus()) {
       case 404:
-        return new StateWithId(CheckState.NO, channelId);
+        return new StateWithId(CheckState.NO, channel, channelId);
       case 422:
-        return new StateWithId(CheckState.UNPROCESSABLE, channelId);
+        return new StateWithId(CheckState.UNPROCESSABLE, channel, channelId);
       default:
         plugin.debug("Check state: " + error);
-        return new StateWithId(CheckState.ERROR, channelId);
+        return new StateWithId(CheckState.ERROR, channel, channelId);
     }
   }
 
@@ -306,4 +296,48 @@ public class Validator {
         new HashMap<>(), "POST");
     return gson.fromJson(reader, AccessToken.class);
   }
+
+  public void store(UUID uuid, String code) {
+    try {
+      AccessToken token = getAccessToken(code);
+      plugin.getSqlHelper().setToken(uuid, getUserId(token), token);
+    } catch (IOException | ParseException | BadJOSEException | JOSEException ex) {
+
+    }
+  }
+
+  public CompletableFuture<Void> sync(Map<UUID, Token> users) {
+    return CompletableFuture.runAsync(() -> users.forEach(this::sync));
+  }
+
+  public CompletableFuture<Void> sync(UUID uuid) {
+    return CompletableFuture.runAsync(() -> {
+      Token token = plugin.getSqlHelper().getToken(uuid).orElse(null);
+      sync(uuid, token).join();
+    });
+  }
+
+  public CompletableFuture<Void> sync(UUID uuid, Token token) {
+    return CompletableFuture.runAsync(() -> {
+      if (token == null && plugin.getConfig().getBoolean("sync-roles")) {
+        // todo: ensure user does not have subscriber roles
+        plugin.getServer().getConsoleSender().sendMessage("[TwitchSync] sync-roles is not supported.");
+        return;
+      }
+
+      token.setAccessToken(refreshAndSaveToken(uuid, token));
+
+      Stream<StateWithId> states = getStates(token.getId(), token.getAccessToken(), "subscriptions");
+      // todo: compare with database
+      // todo: check each channel and sync roles
+      // todo: check total subscription count for upgrades
+    });
+  }
+
+  private AccessToken refreshAndSaveToken(UUID uuid, Token token) {
+    AccessToken refresh = refreshToken(token.getAccessToken().getRefreshToken());
+    plugin.getSqlHelper().setToken(uuid, token.getId(), refresh);
+    return refresh;
+  }
+
 }

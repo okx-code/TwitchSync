@@ -22,44 +22,21 @@ public class Revoker extends BukkitRunnable  {
 
   @Override
   public void run() {
-    plugin.getLogger().info("Revoking now.");
+    plugin.getLogger().info("Syncing user data now.");
     long start = System.currentTimeMillis();
 
     Map<UUID, Token> tokens = plugin.getSqlHelper().getTokens().get();
     checkTokens(tokens);
 
     long time = System.currentTimeMillis() - start;
-    plugin.getLogger().info("Finished revoking in " + time + "ms.");
+    plugin.getLogger().info("Finished Sync in " + time + "ms.");
   }
 
   private void checkTokens(Map<UUID, Token> tokens) {
-    for(Map.Entry<UUID, Token> entry : tokens.entrySet()) {
-      UUID uuid = entry.getKey();
-
-      Token token = entry.getValue();
-
-      AccessToken accessToken = refresh(token.getAccessToken());
-      plugin.getSqlHelper().setToken(uuid,
-          token.getId(),
-          accessToken.getAccessToken(),
-          accessToken.getRefreshToken());
-
-      plugin.getSqlHelper().isFollowing(uuid).ifPresent(b -> {
-        if(b && check(plugin.getValidator().getFollowingState(token.getId(), accessToken))) {
-          revoke("follow", uuid);
-          plugin.getSqlHelper().setFollowing(uuid, false);
-        }
-      });
-      plugin.getSqlHelper().isSubscribed(uuid).ifPresent(b -> {
-        // if subscribed and all states are not YES
-        if(b && check(plugin.getValidator().getSubscriptionState(token.getId(), accessToken))) {
-          revoke("subscribe", uuid);
-          plugin.getSqlHelper().setSubscribed(uuid, false);
-        }
-      });
-    }
+      plugin.getValidator().sync(tokens);
   }
 
+  /*
   private void revoke(String type, UUID uuid) {
     ConfigurationSection section = plugin.getConfig().getConfigurationSection(type);
     OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
@@ -77,6 +54,7 @@ public class Revoker extends BukkitRunnable  {
       }
     });
   }
+  */
 
   /**
    * Check if all states are not YES

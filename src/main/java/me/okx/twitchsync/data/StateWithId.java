@@ -3,10 +3,16 @@ package me.okx.twitchsync.data;
 public class StateWithId implements Comparable<StateWithId> {
   private CheckState state;
   private int id;
+  private Channel channel;
 
-  public StateWithId(CheckState state, int id) {
+  public StateWithId(CheckState state, Channel channel, int id) {
     this.state = state;
     this.id = id;
+    this.channel = channel;
+  }
+
+  public Channel getChannel() {
+    return channel;
   }
 
   public int getId() {

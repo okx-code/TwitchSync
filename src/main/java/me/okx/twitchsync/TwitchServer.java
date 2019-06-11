@@ -41,6 +41,7 @@ public class TwitchServer {
           String code = parameters.get("code");
 
           if(state != null && code != null) {
+            plugin.getValidator().store(UUID.fromString(state), code);
             response = plugin.getValidator().sync(UUID.fromString(state), code);
           }
         }

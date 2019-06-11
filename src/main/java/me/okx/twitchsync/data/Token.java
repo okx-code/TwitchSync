@@ -18,4 +18,8 @@ public class Token {
     this.id = id;
     this.accessToken = accessToken;
   }
+
+  public void setAccessToken(AccessToken token) {
+    this.accessToken = token;
+  }
 }
