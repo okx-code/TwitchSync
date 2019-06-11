@@ -1,6 +1,7 @@
 package me.okx.twitchsync;
 
 import com.sun.net.httpserver.HttpServer;
+import me.okx.twitchsync.data.Token;
 import me.okx.twitchsync.data.sync.SyncMessage;
 import me.okx.twitchsync.data.sync.SyncResponse;
 import me.okx.twitchsync.data.sync.SyncResponseFailure;
@@ -41,8 +42,8 @@ public class TwitchServer {
           String code = parameters.get("code");
 
           if(state != null && code != null) {
-            plugin.getValidator().store(UUID.fromString(state), code);
-            response = plugin.getValidator().sync(UUID.fromString(state), code);
+            Token token = plugin.getValidator().store(UUID.fromString(state), code).get();
+            response = plugin.getValidator().sync(UUID.fromString(state), token).get();
           }
         }
 

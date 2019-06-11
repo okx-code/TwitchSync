@@ -2,10 +2,9 @@ package me.okx.twitchsync.data;
 
 public class Channel {
 
-    String  name;
-    Options subscribeOptions;
-    Options followOptions;
-    String rank;
+    private String  name;
+    private Options subscribeOptions;
+    private Options followOptions;
 
     public String getName() {
         return name;
@@ -31,11 +30,4 @@ public class Channel {
         this.followOptions = followOptions;
     }
 
-    public String getRank() {
-        return rank;
-    }
-
-    public void setRank(String rank) {
-        this.rank = rank;
-    }
 }

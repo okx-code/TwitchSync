@@ -25,8 +25,11 @@ import me.okx.twitchsync.data.sync.SyncResponseFailure;
 import me.okx.twitchsync.data.sync.SyncResponseSuccess;
 import me.okx.twitchsync.events.PlayerFollowEvent;
 import me.okx.twitchsync.events.PlayerSubscriptionEvent;
+import me.okx.twitchsync.util.SqlHelper;
 import me.okx.twitchsync.util.WebUtil;
+import net.milkbowl.vault.permission.Permission;
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 
@@ -191,49 +194,6 @@ public class Validator {
     return claims.getSubject().getValue();
   }
 
-  private MessageWithId getSubscriptionMessage(String userId, AccessToken token) {
-    try {
-      Stream<StateWithId> subscriptionState = getSubscriptionState(userId, token).sorted();
-
-      return new MessageWithId(
-          mapState(subscriptionState.findFirst().get().getState(), SyncMessage.SUBSCRIPTION_SUCCESS),
-          subscriptionState.findFirst().get().getId());
-    } catch (Exception ex) {
-      // TODO: More information based on error type
-      plugin.debug(ex);
-    }
-    return new MessageWithId(SyncMessage.UNKNOWN_ERROR);
-  }
-
-  private MessageWithId getFollowingMessage(String userId, AccessToken token) {
-    try {
-      StateWithId followingState = plugin.debug(
-          getFollowingState(userId, token).sorted().findFirst().get(),
-          "Follow state");
-
-      return new MessageWithId(
-          mapState(followingState.getState(), SyncMessage.FOLLOW_SUCCESS),
-          followingState.getId());
-    } catch (Exception ex) {
-      // TODO: More information based on error type
-      plugin.debug(ex);
-    }
-    return new MessageWithId(SyncMessage.UNKNOWN_ERROR);
-  }
-
-  private SyncMessage mapState(CheckState state, SyncMessage success) {
-    switch (state) {
-      case YES:
-        return success;
-      case NO:
-        return SyncMessage.NOT_BOTH;
-      case UNPROCESSABLE:
-        return SyncMessage.NO_SUBSCRIPTION_PROGRAM;
-      default:
-        return null;
-    }
-  }
-
   private AccessToken getAccessToken(String code) {
     Reader reader = WebUtil.getURL("https://id.twitch.tv/oauth2/token" +
             "?client_id=" + plugin.getConfig().getString("client-id") +
@@ -245,15 +205,8 @@ public class Validator {
     return gson.fromJson(reader, AccessToken.class);
   }
 
-  public Stream<StateWithId> getSubscriptionState(String userId, AccessToken token) {
-    return getStates(userId, token, "subscriptions");
-  }
 
-  public Stream<StateWithId> getFollowingState(String userId, AccessToken token) {
-    return getStates(userId, token, "follows/channels");
-  }
-
-  private Stream<StateWithId> getStates(String userId, AccessToken token, String type) {
+  private Stream<StateWithId> getStates(Token token, Map<Integer, Channel> channels, String type) {
     Map<String, String> headers = new HashMap<>();
     headers.put("Client-ID", plugin.getConfig().getString("client-id"));
     headers.put("Accept", "application/vnd.twitchtv.v5+json");
@@ -261,7 +214,7 @@ public class Validator {
 
     return channels.entrySet().stream()
         .map(entry -> getIndividualState(entry.getValue(), headers,
-            "https://api.twitch.tv/kraken/users/" + userId + "/" + type + "/", entry.getKey()))
+            "https://api.twitch.tv/kraken/users/" + token.getId() + "/" + type + "/", entry.getKey()))
         .peek(s -> plugin.debug(s, "Peek"));
   }
 
@@ -297,12 +250,12 @@ public class Validator {
     return gson.fromJson(reader, AccessToken.class);
   }
 
-  public void store(UUID uuid, String code) {
+  public CompletableFuture<Token> store(UUID uuid, String code) {
     try {
       AccessToken token = getAccessToken(code);
-      plugin.getSqlHelper().setToken(uuid, getUserId(token), token);
+      return plugin.getSqlHelper().setToken(uuid, getUserId(token), token);
     } catch (IOException | ParseException | BadJOSEException | JOSEException ex) {
-
+      return CompletableFuture.completedFuture(null);
     }
   }
 
@@ -311,26 +264,43 @@ public class Validator {
   }
 
   public CompletableFuture<Void> sync(UUID uuid) {
-    return CompletableFuture.runAsync(() -> {
-      Token token = plugin.getSqlHelper().getToken(uuid).orElse(null);
-      sync(uuid, token).join();
-    });
+    return CompletableFuture.runAsync(() -> plugin.getSqlHelper().getToken(uuid).ifPresent(token -> sync(uuid, token).join()));
   }
 
-  public CompletableFuture<Void> sync(UUID uuid, Token token) {
-    return CompletableFuture.runAsync(() -> {
-      if (token == null && plugin.getConfig().getBoolean("sync-roles")) {
-        // todo: ensure user does not have subscriber roles
-        plugin.getServer().getConsoleSender().sendMessage("[TwitchSync] sync-roles is not supported.");
-        return;
+  public CompletableFuture<SyncResponse> sync(UUID uuid, Token token) {
+    return CompletableFuture.<SyncResponse>supplyAsync(() -> {
+      if (token == null) {
+        return null;
       }
 
       token.setAccessToken(refreshAndSaveToken(uuid, token));
 
-      Stream<StateWithId> states = getStates(token.getId(), token.getAccessToken(), "subscriptions");
+      Stream<StateWithId> states = getStates(token, channels, "subscriptions");
+      SqlHelper helper = plugin.getSqlHelper();
+      Permission perms = plugin.getPerms();
+      states.forEach(state -> {
+        Boolean subscribed = null;
+        if (state.getState() == CheckState.YES) subscribed = true;
+        else if (state.getState() == CheckState.NO) subscribed = false;
+        if (subscribed != null) {
+          helper.setSubscribed(uuid, state.getChannel().getName(), subscribed);
+          OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
+          String rank = state.getChannel().getSubscribeOptions().getRank();
+          if (subscribed) {
+            if (!perms.playerInGroup(null, player, rank)) {
+              perms.playerAddGroup(null, player, rank);
+            }
+          } else {
+            if (perms.playerInGroup(null, player, rank)) {
+              perms.playerRemoveGroup(null, player, rank);
+            }
+          }
+        }
+      });
       // todo: compare with database
       // todo: check each channel and sync roles
       // todo: check total subscription count for upgrades
+      return null;
     });
   }
 

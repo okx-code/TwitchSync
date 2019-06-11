@@ -23,9 +23,6 @@ upgrades:
   - rank: ubersub
     threshold: 2
 
-# remove roles from users that got subscription roles manually
-sync-roles: true
-
 # The client ID given by Twitch.
 client-id: required
 
