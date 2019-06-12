@@ -12,6 +12,8 @@ public enum SyncMessage {
   UNKNOWN_ERROR("unknown-error"),
   BOTH_SUCCESS("success-both"),
   NOT_BOTH("not-both"),
+  SUCCESS("success"),
+  NO_TOKEN("no-token"),
   ALREADY_DONE("already-done");
 
   private String config;

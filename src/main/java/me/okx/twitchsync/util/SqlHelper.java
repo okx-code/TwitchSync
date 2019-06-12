@@ -25,7 +25,6 @@ public class SqlHelper {
         Statement stmt = connection.createStatement();
         stmt.execute("CREATE TABLE IF NOT EXISTS subscribed (uuid VARCHAR(36), channel VARCHAR(25), PRIMARY KEY (uuid, channel))");
         stmt.execute("CREATE TABLE IF NOT EXISTS following  (uuid VARCHAR(36), channel VARCHAR(25), PRIMARY KEY (uuid, channel))");
-        stmt.execute("CREATE TABLE IF NOT EXISTS credentials (userId NVARCHAR PRIMARY KEY, identProvider NVARCHAR)");
         stmt.execute("CREATE TABLE IF NOT EXISTS tokens " +
             "(uuid VARCHAR(36) PRIMARY KEY, " +
             "id VARCHAR(12), " +

@@ -21,10 +21,6 @@ import me.okx.twitchsync.data.json.User;
 import me.okx.twitchsync.data.json.Users;
 import me.okx.twitchsync.data.sync.SyncMessage;
 import me.okx.twitchsync.data.sync.SyncResponse;
-import me.okx.twitchsync.data.sync.SyncResponseFailure;
-import me.okx.twitchsync.data.sync.SyncResponseSuccess;
-import me.okx.twitchsync.events.PlayerFollowEvent;
-import me.okx.twitchsync.events.PlayerSubscriptionEvent;
 import me.okx.twitchsync.util.SqlHelper;
 import me.okx.twitchsync.util.WebUtil;
 import net.milkbowl.vault.permission.Permission;
@@ -45,7 +41,11 @@ import java.util.logging.Level;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static java.util.Comparator.reverseOrder;
+
 public class Validator {
+  public static final String SUBSCRIPTIONS = "subscriptions";
+  public static final String FOLLOWS = "follows/channels";
   private Gson gson = new Gson();
   private Map<Integer, Channel> channels;
   private TwitchSync plugin;
@@ -57,16 +57,23 @@ public class Validator {
         .build();
     this.plugin = plugin;
     CompletableFuture.runAsync(() -> {
-      List<Channel> channelList = new ArrayList<>();
-      ConfigurationSection channelConfig = plugin.getConfig().getConfigurationSection("channels");
-      if (channelConfig != null) {
-        Set<String> channelNames = channelConfig.getKeys(false);
-        for (String name : channelNames) {
-          channelList.add(channelConfig.getObject(name, Channel.class));
-        }
-      }
+      List<Channel> channelList = getList("channels", Channel.class);
       this.channels = getChannelMap(channelList);
     });
+  }
+
+  private <T> List<T> getList(String path, Class<T> clazz) {
+    List<?> _list = plugin.getConfig().getList(path);
+    List<T> list = new ArrayList<>();
+
+    if (_list == null) return list;
+
+    for (Object t : _list) {
+      if (clazz.isInstance(t)) {
+        list.add(clazz.cast(t));
+      }
+    }
+    return list;
   }
 
   public Channel getChannel(int channelId) {
@@ -263,45 +270,74 @@ public class Validator {
     return CompletableFuture.runAsync(() -> users.forEach(this::sync));
   }
 
-  public CompletableFuture<Void> sync(UUID uuid) {
-    return CompletableFuture.runAsync(() -> plugin.getSqlHelper().getToken(uuid).ifPresent(token -> sync(uuid, token).join()));
+  public CompletableFuture<SyncResponse> sync(UUID uuid) {
+    return CompletableFuture.supplyAsync(() ->
+        plugin.getSqlHelper().getToken(uuid).map(token ->
+            sync(uuid, token).join()).orElse(SyncResponse.of(SyncMessage.NO_TOKEN)));
   }
 
   public CompletableFuture<SyncResponse> sync(UUID uuid, Token token) {
     return CompletableFuture.<SyncResponse>supplyAsync(() -> {
       if (token == null) {
-        return null;
+        return SyncResponse.of(SyncMessage.NO_TOKEN);
       }
 
       token.setAccessToken(refreshAndSaveToken(uuid, token));
 
-      Stream<StateWithId> states = getStates(token, channels, "subscriptions");
-      SqlHelper helper = plugin.getSqlHelper();
+      Stream<StateWithId> subscribeStates = getStates(token, channels, SUBSCRIPTIONS);
+      List<Channel> subscriptions = syncStates(uuid, subscribeStates, Channel::getSubscribeOptions);
+
+      Stream<StateWithId> followStates = getStates(token, channels, FOLLOWS);
+      List<Channel> follows = syncStates(uuid, followStates, Channel::getFollowOptions);
+
+      Integer subscriptionCount = subscriptions.size();
+      // get highest upgrade
+      // get upgrades
+      List<Upgrade> upgrades = getList("upgrades", Upgrade.class);
+      upgrades.sort(Comparator.comparingInt(Upgrade::getThreshold));
+      OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
       Permission perms = plugin.getPerms();
-      states.forEach(state -> {
-        Boolean subscribed = null;
-        if (state.getState() == CheckState.YES) subscribed = true;
-        else if (state.getState() == CheckState.NO) subscribed = false;
-        if (subscribed != null) {
-          helper.setSubscribed(uuid, state.getChannel().getName(), subscribed);
-          OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
-          String rank = state.getChannel().getSubscribeOptions().getRank();
-          if (subscribed) {
-            if (!perms.playerInGroup(null, player, rank)) {
-              perms.playerAddGroup(null, player, rank);
-            }
-          } else {
-            if (perms.playerInGroup(null, player, rank)) {
-              perms.playerRemoveGroup(null, player, rank);
-            }
+
+      for (Upgrade u : upgrades) {
+        if (u.getThreshold() >= subscriptions.size()) {
+          if (!perms.playerInGroup(null, player, u.getRank())) {
+            perms.playerAddGroup(null, player, u.getRank());
+          }
+        } else if (perms.playerInGroup(null, player, u.getRank())) {
+          perms.playerRemoveGroup(null, player, u.getRank());
+        }
+      }
+
+      // todo: check total subscription count for upgrades
+      return new SyncResponse(SyncMessage.SUCCESS, subscriptions, follows);
+    });
+  }
+
+  private List<Channel> syncStates(UUID uuid, Stream<StateWithId> states, OptionSupplier optionSupplier) {
+    List<Channel> subscriptions = new ArrayList<>();
+    SqlHelper helper = plugin.getSqlHelper();
+    Permission perms = plugin.getPerms();
+    states.forEach(state -> {
+      Boolean active = null;
+      if (state.getState() == CheckState.YES) active = true;
+      else if (state.getState() == CheckState.NO) active = false;
+      if (active != null) {
+        helper.setSubscribed(uuid, state.getChannel().getName(), active);
+        OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
+        String rank = optionSupplier.supply(state.getChannel()).getRank();
+        if (active) {
+          if (!perms.playerInGroup(null, player, rank)) {
+            perms.playerAddGroup(null, player, rank);
+          }
+          subscriptions.add(state.getChannel());
+        } else {
+          if (perms.playerInGroup(null, player, rank)) {
+            perms.playerRemoveGroup(null, player, rank);
           }
         }
-      });
-      // todo: compare with database
-      // todo: check each channel and sync roles
-      // todo: check total subscription count for upgrades
-      return null;
+      }
     });
+    return subscriptions;
   }
 
   private AccessToken refreshAndSaveToken(UUID uuid, Token token) {

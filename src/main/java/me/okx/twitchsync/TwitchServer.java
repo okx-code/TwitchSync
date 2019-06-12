@@ -4,8 +4,6 @@ import com.sun.net.httpserver.HttpServer;
 import me.okx.twitchsync.data.Token;
 import me.okx.twitchsync.data.sync.SyncMessage;
 import me.okx.twitchsync.data.sync.SyncResponse;
-import me.okx.twitchsync.data.sync.SyncResponseFailure;
-import me.okx.twitchsync.data.sync.SyncResponseSuccess;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -31,7 +29,7 @@ public class TwitchServer {
       try {
         plugin.debug("Handling request " + ex + " on " + Thread.currentThread().getName());
 
-        SyncResponse response = new SyncResponseFailure(SyncMessage.INVALID_URL);
+        SyncResponse response = SyncResponse.of(SyncMessage.INVALID_URL);
 
         String query = ex.getRequestURI().getQuery();
         if (query != null) {
@@ -47,31 +45,7 @@ public class TwitchServer {
           }
         }
 
-        SyncMessage message;
-        if (response instanceof SyncResponseSuccess) {
-          SyncResponseSuccess success = (SyncResponseSuccess) response;
-          if (success.isFollowing() && success.isSubscribed()) {
-            message = SyncMessage.BOTH_SUCCESS;
-          } else if (success.isFollowing()) {
-            message = SyncMessage.FOLLOW_SUCCESS;
-          } else if (success.isSubscribed()) {
-            message = SyncMessage.SUBSCRIPTION_SUCCESS;
-          } else {
-            SyncMessage subscribe = success.getSubscribeMessage();
-            SyncMessage follow = success.getFollowMessage();
-            // make sure the already-done message shows up
-            if(subscribe == SyncMessage.ALREADY_DONE) {
-              message = subscribe;
-            } else {
-              message = follow;
-            }
-          }
-        } else if (response instanceof SyncResponseFailure) {
-          SyncResponseFailure failure = (SyncResponseFailure) response;
-          message = failure.getMessage();
-        } else {
-          throw new IllegalArgumentException("Sync response must either be success or failure.");
-        }
+        SyncMessage message = response.getMessage();
 
         byte[] bytes = message.getValue(plugin).getBytes("UTF-8");
 
