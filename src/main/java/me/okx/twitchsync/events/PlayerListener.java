@@ -1,6 +1,9 @@
 package me.okx.twitchsync.events;
 
 import me.okx.twitchsync.TwitchSync;
+import me.okx.twitchsync.data.Channel;
+import me.okx.twitchsync.data.OptionSupplier;
+import me.okx.twitchsync.data.Options;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
@@ -16,32 +19,29 @@ public class PlayerListener implements Listener {
 
   @EventHandler
   public void on(PlayerSubscriptionEvent e) {
-    handle("subscribe", e.getPlayer(), e.getChannelId());
+    handle(Channel::getSubscribeOptions, e.getPlayer(), e.getChannel());
   }
 
   @EventHandler
   public void on(PlayerFollowEvent e) {
-    handle("follow", e.getPlayer(), e.getChannelId());
+    handle(Channel::getFollowOptions, e.getPlayer(), e.getChannel());
   }
 
-  private void handle(String path, Player player, int channelId) {
-    ConfigurationSection config = plugin.getConfig().getConfigurationSection(path);
-    if(!config.getBoolean("enabled")) {
+  private void handle(OptionSupplier optionSupplier, Player player, Channel channel) {
+    Options options = optionSupplier.supply(channel);
+    if(!options.getEnabled()) {
       return;
     }
 
-    String channel = plugin.getValidator().getChannelName(channelId);
-
-    String group = config.getString("rank");
+    String group = options.getRank();
     if (!group.equalsIgnoreCase("none") && plugin.getPerms() != null) {
       plugin.getPerms().playerAddGroup(null, player, group);
     }
 
-    for (String command : config.getStringList("commands")) {
+    for (String command : options.getCommands()) {
       Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command
           .replace("%name%", player.getName())
-          .replace("%channel%", channel)
-          .replace("%channelid%", channelId + ""));
+          .replace("%channel%", channel.getName()));
     }
   }
 }

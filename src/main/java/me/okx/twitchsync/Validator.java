@@ -21,6 +21,7 @@ import me.okx.twitchsync.data.json.User;
 import me.okx.twitchsync.data.json.Users;
 import me.okx.twitchsync.data.sync.SyncMessage;
 import me.okx.twitchsync.data.sync.SyncResponse;
+import me.okx.twitchsync.events.PlayerSubscriptionEvent;
 import me.okx.twitchsync.util.SqlHelper;
 import me.okx.twitchsync.util.WebUtil;
 import net.milkbowl.vault.permission.Permission;
@@ -324,15 +325,32 @@ public class Validator {
       if (active != null) {
         helper.setSubscribed(uuid, state.getChannel().getName(), active);
         OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
-        String rank = optionSupplier.supply(state.getChannel()).getRank();
+        Options options = optionSupplier.supply(state.getChannel());
         if (active) {
-          if (!perms.playerInGroup(null, player, rank)) {
-            perms.playerAddGroup(null, player, rank);
+          if (!perms.playerInGroup(null, player, options.getRank())) {
+            if (player.isOnline()) {
+              Player onlinePlayer = (Player) player;
+              Bukkit.getScheduler().runTask(plugin, () ->
+                  Bukkit.getPluginManager().callEvent(
+                      new PlayerSubscriptionEvent(onlinePlayer, state.getChannel())));
+            } else {
+              if (options.getEnabled()) {
+                if (!options.getRank().equalsIgnoreCase("none") && plugin.getPerms() != null) {
+                  plugin.getPerms().playerAddGroup(null, player, options.getRank());
+                }
+                for (String command : options.getCommands()) {
+                  Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command
+                      .replace("%name%", player.getName())
+                      .replace("%channel%", state.getChannel().getName())
+                      .replace("%channelid%", state.getId() + ""));
+                }
+              }
+            }
           }
           subscriptions.add(state.getChannel());
         } else {
-          if (perms.playerInGroup(null, player, rank)) {
-            perms.playerRemoveGroup(null, player, rank);
+          if (perms.playerInGroup(null, player, options.getRank())) {
+            perms.playerRemoveGroup(null, player, options.getRank());
           }
         }
       }
