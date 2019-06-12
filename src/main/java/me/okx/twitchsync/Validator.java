@@ -26,8 +26,8 @@ import me.okx.twitchsync.util.SqlHelper;
 import me.okx.twitchsync.util.WebUtil;
 import net.milkbowl.vault.permission.Permission;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 
 import java.io.IOException;
@@ -41,8 +41,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import static java.util.Comparator.reverseOrder;
 
 public class Validator {
   public static final String SUBSCRIPTIONS = "subscriptions";
@@ -58,16 +56,36 @@ public class Validator {
         .build();
     this.plugin = plugin;
     CompletableFuture.runAsync(() -> {
-      List<Channel> channelList = getList("channels", Channel.class);
+      plugin.debug("Getting Channels.", "Testing");
+      List<Channel> channelList = (List<Channel>)plugin.getConfig().getList("channels");
+      plugin.debug(channelList, "Channels");
+      if (channelList == null) channelList = new ArrayList<>();
       this.channels = getChannelMap(channelList);
+      plugin.debug("Checking channels: " + channelList.stream().map(Channel::getName).collect(Collectors.joining(",")), "Channels");
+      plugin.debug("Got channels: " + this.channels.values().stream().map(Channel::getName).collect(Collectors.joining(",")), "Channels");
+      if (channelList.size() == 0) {
+        plugin.debug("Got an empty channel list, writing an example to file.", "Channels");
+        Channel example = new Channel();
+        example.setName("example");
+        Options exampleOptions = new Options();
+        exampleOptions.setRank("none");
+        exampleOptions.setEnabled(false);
+        exampleOptions.setCommands(Collections.emptyList());
+        exampleOptions.setRevokeCommands(Collections.emptyList());
+        example.setSubscribe(exampleOptions);
+        example.setFollow(exampleOptions);
+        channelList.add(example);
+        plugin.getConfig().set("channels", channelList);
+        plugin.saveConfig();
+      }
     });
   }
 
   private <T> List<T> getList(String path, Class<T> clazz) {
     List<?> _list = plugin.getConfig().getList(path);
     List<T> list = new ArrayList<>();
-
     if (_list == null) return list;
+    plugin.debug(_list, "Channels");
 
     for (Object t : _list) {
       if (clazz.isInstance(t)) {
@@ -82,25 +100,35 @@ public class Validator {
   }
 
   private Map<Integer, Channel> getChannelMap(List<Channel> channels) {
-    Map<String, String> headers = new HashMap<>();
+    try {
+      Map<String, String> headers = new HashMap<>();
 
-    headers.put("Client-ID", plugin.getConfig().getString("client-id"));
-    headers.put("Accept", "application/vnd.twitchtv.v5+json");
+      headers.put("Client-ID", plugin.getConfig().getString("client-id"));
+      headers.put("Accept", "application/vnd.twitchtv.v5+json");
 
-    Reader reader = WebUtil.getURL("https://api.twitch.tv/kraken/users?login="
-        + channels.stream().map(Channel::getName).collect(Collectors.joining(",")), headers);
-    Users users = plugin.debug(gson.fromJson(reader, Users.class), "Users");
+      if (channels.size() == 0) {
+        plugin.debug("No channels found", "Error");
+        return new HashMap<>();
+      }
 
-    if (users.getTotal() == 0) {
-      plugin.getLogger().log(Level.SEVERE, "No channels found");
-      return null;
+      Reader reader = WebUtil.getURL("https://api.twitch.tv/kraken/users?login="
+          + channels.stream().map(Channel::getName).collect(Collectors.joining(",")), headers);
+      Users users = plugin.debug(gson.fromJson(reader, Users.class), "Users");
+
+      if (users.getTotal() == 0) {
+        plugin.debug("No channels found", "Error");
+        return new HashMap<>();
+      }
+
+      Map<Integer, Channel> channelMap = new HashMap<>();
+      for (User user : users.getUsers()) {
+        channelMap.put(user.getId(), channels.stream().filter(c -> c.getName().equals(user.getName())).findFirst().get());
+      }
+      return channelMap;
+    } catch (Exception ex) {
+      plugin.debug(ex);
+      return new HashMap<>();
     }
-
-    Map<Integer, Channel> channelMap = new HashMap<>();
-    for (User user : users.getUsers()) {
-      channelMap.put(user.getId(), channels.stream().filter(c -> c.getName().equals(user.getName())).findFirst().get());
-    }
-    return channelMap;
   }
 
   public String createAuthenticationUrl(UUID user) {
@@ -114,77 +142,6 @@ public class Validator {
         "&scope=user_subscriptions+openid" +
         "&state=" + uuid;
   }
-
-  /*
-  public SyncResponse sync(UUID withState, String code) {
-    plugin.debug("States: " + userStates.asMap());
-
-    UUID uuid = userStates.getIfPresent(withState);
-    if (uuid == null) {
-      return new SyncResponseFailure(SyncMessage.STATE_NOT_FOUND);
-    }
-    userStates.invalidate(withState);
-
-    // safe to run blocking sql as this is run on web server thread
-    Optional<Boolean> following = plugin.getSqlHelper().isFollowing(uuid);
-    Optional<Boolean> subscribed = plugin.getSqlHelper().isSubscribed(uuid);
-
-    if (!subscribed.isPresent() || !following.isPresent()) {
-      return new SyncResponseFailure(SyncMessage.UNKNOWN_ERROR);
-    }
-
-    Player user = Bukkit.getPlayer(uuid);
-
-    if (user == null) {
-      return new SyncResponseFailure(SyncMessage.PLAYER_NOT_FOUND);
-    }
-
-    AccessToken token;
-    try {
-      token = plugin.debug(getAccessToken(code));
-    } catch (Exception ex) {
-      plugin.debug(ex);
-      return new SyncResponseFailure(SyncMessage.UNKNOWN_ERROR);
-    }
-
-
-    try {
-      String userId = plugin.debug(getUserId(token), "User ID");
-      plugin.getSqlHelper().setToken(uuid, userId, token.getAccessToken(), token.getRefreshToken());
-
-      MessageWithId subscriptionMessage = getSubscriptionMessage(userId, token);
-      if (subscriptionMessage.getMessage() == SyncMessage.SUBSCRIPTION_SUCCESS) {
-        if (plugin.debug(subscribed.get(), "Subscribed")) {
-          subscriptionMessage.setMessage(SyncMessage.ALREADY_DONE);
-        } else {
-          Bukkit.getScheduler().runTask(plugin, () ->
-              Bukkit.getPluginManager().callEvent(
-                  new PlayerSubscriptionEvent(user, subscriptionMessage.getChannelId().get())));
-          plugin.getSqlHelper().setSubscribed(uuid, true);
-        }
-      }
-
-      MessageWithId followingMessage = getFollowingMessage(userId, token);
-      if (followingMessage.getMessage() == SyncMessage.FOLLOW_SUCCESS) {
-        if (plugin.debug(following.get(), "Followed")) {
-          followingMessage.setMessage(SyncMessage.ALREADY_DONE);
-        } else {
-          Bukkit.getScheduler().runTask(plugin, () ->
-              Bukkit.getPluginManager().callEvent(
-                  new PlayerFollowEvent(user, followingMessage.getChannelId().get())));
-          plugin.getSqlHelper().setFollowing(uuid, true);
-        }
-      }
-
-      return new SyncResponseSuccess(
-          followingMessage.getMessage(), subscriptionMessage.getMessage());
-    } catch (Exception ex) {
-      // TODO: More information based on error type
-      plugin.debug(ex);
-      return null;
-    }
-  }
-  */
 
   private String getUserId(AccessToken token) throws IOException, ParseException, BadJOSEException, JOSEException {
 
@@ -227,7 +184,7 @@ public class Validator {
   }
 
   private StateWithId getIndividualState(Channel channel, Map<String, String> headers, String url, int channelId) {
-    InputStreamReader reader = WebUtil.getURL(url + channelId, headers);
+    InputStreamReader reader = WebUtil.getURL(plugin.debug(url + channelId, "Sync"), headers);
     JsonElement json = gson.fromJson(reader, JsonElement.class);
 
     ChannelObject object = gson.fromJson(json, ChannelObject.class);
@@ -274,7 +231,8 @@ public class Validator {
   public CompletableFuture<SyncResponse> sync(UUID uuid) {
     return CompletableFuture.supplyAsync(() ->
         plugin.getSqlHelper().getToken(uuid).map(token ->
-            sync(uuid, token).join()).orElse(SyncResponse.of(SyncMessage.NO_TOKEN)));
+            sync(plugin.debug(uuid), plugin.debug(token)).join())
+            .orElse(SyncResponse.of(SyncMessage.NO_TOKEN)));
   }
 
   public CompletableFuture<SyncResponse> sync(UUID uuid, Token token) {
@@ -283,13 +241,35 @@ public class Validator {
         return SyncResponse.of(SyncMessage.NO_TOKEN);
       }
 
-      token.setAccessToken(refreshAndSaveToken(uuid, token));
+      if (channels == null) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player != null) {
+          player.sendMessage(ChatColor.DARK_RED + "No channels available, contact your administrator.");
+        }
+        plugin.getLogger().info("No channels found to check for subscriptions.");
+        return SyncResponse.of(SyncMessage.SUCCESS);
+      }
 
-      Stream<StateWithId> subscribeStates = getStates(token, channels, SUBSCRIPTIONS);
-      List<Channel> subscriptions = syncStates(uuid, subscribeStates, Channel::getSubscribeOptions);
+      Token _token = refreshAndSaveToken(uuid, token);
 
-      Stream<StateWithId> followStates = getStates(token, channels, FOLLOWS);
-      List<Channel> follows = syncStates(uuid, followStates, Channel::getFollowOptions);
+      if (_token == null) {
+        _token = plugin.getSqlHelper().getToken(uuid).get();
+      }
+
+      if (_token.getId() == null) {
+        try {
+          _token.setId(getUserId(_token.getAccessToken()));
+        } catch (Exception ex) {
+          plugin.debug(ex);
+        }
+      }
+      plugin.debug("ID: " + _token.getId(), "Sync");
+
+      Stream<StateWithId> subscribeStates = getStates(_token, channels, SUBSCRIPTIONS);
+      List<Channel> subscriptions = syncStates(uuid, subscribeStates, Channel::getSubscribe);
+
+      Stream<StateWithId> followStates = getStates(_token, channels, FOLLOWS);
+      List<Channel> follows = syncStates(uuid, followStates, Channel::getFollow);
 
       Integer subscriptionCount = subscriptions.size();
       // get highest upgrade
@@ -322,6 +302,7 @@ public class Validator {
       Boolean active = null;
       if (state.getState() == CheckState.YES) active = true;
       else if (state.getState() == CheckState.NO) active = false;
+      plugin.debug(uuid.toString() + " - " + state.getChannel().getName() + ": " + state.getState().toString(), "Sync");
       if (active != null) {
         helper.setSubscribed(uuid, state.getChannel().getName(), active);
         OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
@@ -329,6 +310,7 @@ public class Validator {
         if (active) {
           if (!perms.playerInGroup(null, player, options.getRank())) {
             if (player.isOnline()) {
+              plugin.debug("Player is online, running event as normal", "Sync");
               Player onlinePlayer = (Player) player;
               Bukkit.getScheduler().runTask(plugin, () ->
                   Bukkit.getPluginManager().callEvent(
@@ -358,10 +340,14 @@ public class Validator {
     return subscriptions;
   }
 
-  private AccessToken refreshAndSaveToken(UUID uuid, Token token) {
-    AccessToken refresh = refreshToken(token.getAccessToken().getRefreshToken());
-    plugin.getSqlHelper().setToken(uuid, token.getId(), refresh);
-    return refresh;
+  private Token refreshAndSaveToken(UUID uuid, Token token) {
+    AccessToken newToken = refreshToken(token.getAccessToken().getRefreshToken());
+    try {
+      return plugin.getSqlHelper().setToken(uuid, token.getId(), newToken).get();
+    } catch (Exception ex) {
+      plugin.debug(ex);
+      return null;
+    }
   }
 
 }

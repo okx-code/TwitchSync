@@ -22,4 +22,8 @@ public class Token {
   public void setAccessToken(AccessToken token) {
     this.accessToken = token;
   }
+
+  public void setId(String userId) {
+    this.id = userId;
+  }
 }

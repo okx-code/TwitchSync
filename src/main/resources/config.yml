@@ -1,33 +1,44 @@
 # The channel name(s) to check for subscription/follows.
 channels:
-  - name: kixstar
+  - ==: channel
+    name: kixstar
     subscribe:
+      ==: options
       enabled: true
       rank: kixsub
-      commands:
-        - "broadcast %name% has subscribed to %channel%!"
+      commands: []
       revoke-commands: []
     follow:
+      ==: options
       enabled: false
-  - name: thegodlynoob
+      rank: none
+      commands: []
+      revoke-commands: []
+  - ==: channel
+    name: thegodlynoob
     subscribe:
+      ==: options
       enabled: true
       rank: godlysub
-      commands:
-        - "broadcast %name% has subscribed to %channel%!"
+      commands: []
       revoke-commands: []
     follow:
+      ==: options
       enabled: false
+      rank: none
+      commands: []
+      revoke-commands: []
 
 upgrades:
-  - rank: ubersub
+  - ==: upgrade
+    rank: ubersub
     threshold: 2
 
 # The client ID given by Twitch.
-client-id: required
+client-id: <id>
 
 # The client secret given by Twitch. Remember not to tell anyone this!
-client-secret: required
+client-secret: <secret>
 
 # Port to host the HTTP server on
 server-port: 8080
@@ -40,6 +51,8 @@ expiry-time: 10
 
 # Note that these messages are sent by the web server and use HTML, not chat formatting.
 messages:
+  success: "Successfully linked your account."
+  no-token: "No token for the current user."
   subscription:
     no-subscription-program: "The channel does not have a subscription program set up."
     success: "Successfully set up Twitch Sync."
@@ -65,4 +78,4 @@ revoke-interval-days: 1
 # Enable debugging information.
 # If you encounter an unexpected error please enable this
 # and send the results to the dev!
-debug-mode: false
+debug-mode: true

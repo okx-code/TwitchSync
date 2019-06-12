@@ -1,6 +1,13 @@
 package me.okx.twitchsync.data;
 
-public class Upgrade {
+import org.bukkit.configuration.serialization.ConfigurationSerializable;
+import org.bukkit.configuration.serialization.SerializableAs;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@SerializableAs("upgrade")
+public class Upgrade implements ConfigurationSerializable {
 
   private Integer threshold;
   private String rank;
@@ -24,5 +31,17 @@ public class Upgrade {
 
   public void setRank(String rank) {
     this.rank = rank;
+  }
+
+  @Override
+  public Map<String, Object> serialize() {
+    Map<String, Object> serialised = new HashMap<>();
+    serialised.put("rank", this.rank);
+    serialised.put("threshold", this.threshold);
+    return serialised;
+  }
+
+  public static Upgrade deserialize(Map<String, Object> map) {
+    return new Upgrade((Integer)map.get("threshold"), (String)map.get("rank"));
   }
 }

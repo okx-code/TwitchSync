@@ -1,8 +1,12 @@
 package me.okx.twitchsync;
 
+import me.okx.twitchsync.data.Channel;
+import me.okx.twitchsync.data.Options;
+import me.okx.twitchsync.data.Upgrade;
 import me.okx.twitchsync.events.PlayerListener;
 import me.okx.twitchsync.util.SqlHelper;
 import net.milkbowl.vault.permission.Permission;
+import org.bukkit.configuration.serialization.ConfigurationSerialization;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -20,7 +24,15 @@ public class TwitchSync extends JavaPlugin {
   }
 
   @Override
+  public void onLoad() {
+    ConfigurationSerialization.registerClass(Options.class);
+    ConfigurationSerialization.registerClass(Channel.class);
+    ConfigurationSerialization.registerClass(Upgrade.class);
+  }
+
+  @Override
   public void onEnable() {
+    debug("Logging works.", "Testing");
     getConfig().options().copyDefaults(true);
     saveDefaultConfig();
     initValidator();
@@ -80,21 +92,21 @@ public class TwitchSync extends JavaPlugin {
   }
 
   public <T> T debug(T message) {
-    if (getConfig().getBoolean("debug-mode")) {
+    if (getConfig().getBoolean("debug-mode") || true) {
       getLogger().log(Level.INFO, String.valueOf(message));
     }
     return message;
   }
 
   public <T> T debug(T message, String label) {
-    if (getConfig().getBoolean("debug-mode")) {
+    if (getConfig().getBoolean("debug-mode") || true) {
       getLogger().log(Level.INFO, label + ": " + message);
     }
     return message;
   }
 
   public void debug(Throwable throwable) {
-    if (getConfig().getBoolean("debug-mode")) {
+    if (getConfig().getBoolean("debug-mode") || true) {
       throwable.printStackTrace();
     }
   }
