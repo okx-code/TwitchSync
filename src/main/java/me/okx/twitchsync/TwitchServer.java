@@ -40,8 +40,12 @@ public class TwitchServer {
           String code = parameters.get("code");
 
           if(state != null && code != null) {
-            Token token = plugin.getValidator().store(UUID.fromString(state), code).get();
-            response = plugin.getValidator().sync(UUID.fromString(state), token).get();
+            UUID stateUUID = UUID.fromString(state);
+            UUID uuid = plugin.getValidator().getUUIDFromAuthState(stateUUID);
+            if (uuid != null) {
+              Token token = plugin.getValidator().store(uuid, code).get();
+              response = plugin.getValidator().sync(uuid, token).get();
+            } else response = SyncResponse.of(SyncMessage.INVALID_URL);
           }
         }
 

@@ -43,7 +43,7 @@ public class PlayerListener implements Listener {
 
     for (String command : options.getCommands()) {
       Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command
-          .replace("%name%", player.getName())
+          .replace("%player%", player.getName())
           .replace("%channel%", channel.getName()));
     }
   }

@@ -95,9 +95,9 @@ public class SqlHelper {
 
   public void setFollowing(UUID uuid, String channel, boolean following) {
     CompletableFuture.runAsync(() -> {
-      if (following) {
+      if (following && !isFollowing(uuid, channel)) {
         addToTable("following", uuid, channel);
-      } else {
+      } else if (!following && isFollowing(uuid, channel)) {
         deleteFromTable("following", uuid, channel);
       }
     });
@@ -105,9 +105,9 @@ public class SqlHelper {
 
   public void setSubscribed(UUID uuid, String channel, boolean subscribed) {
     CompletableFuture.runAsync(() -> {
-      if (subscribed) {
+      if (subscribed && !isSubscribed(uuid, channel)) {
         addToTable("subscribed", uuid, channel);
-      } else {
+      } else if (!subscribed && isSubscribed(uuid, channel)) {
         deleteFromTable("subscribed", uuid, channel);
       }
     });

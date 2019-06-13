@@ -175,12 +175,11 @@ public class Validator {
     Map<String, String> headers = new HashMap<>();
     headers.put("Client-ID", plugin.getConfig().getString("client-id"));
     headers.put("Accept", "application/vnd.twitchtv.v5+json");
-    headers.put("Authorization", "OAuth " + token.getAccessToken());
+    headers.put("Authorization", "OAuth " + token.getAccessToken().getAccessToken());
 
     return channels.entrySet().stream()
         .map(entry -> getIndividualState(entry.getValue(), headers,
-            "https://api.twitch.tv/kraken/users/" + token.getId() + "/" + type + "/", entry.getKey()))
-        .peek(s -> plugin.debug(s, "Peek"));
+            "https://api.twitch.tv/kraken/users/" + token.getId() + "/" + type + "/", entry.getKey()));
   }
 
   private StateWithId getIndividualState(Channel channel, Map<String, String> headers, String url, int channelId) {
@@ -266,10 +265,10 @@ public class Validator {
       plugin.debug("ID: " + _token.getId(), "Sync");
 
       Stream<StateWithId> subscribeStates = getStates(_token, channels, SUBSCRIPTIONS);
-      List<Channel> subscriptions = syncStates(uuid, subscribeStates, Channel::getSubscribe);
+      List<Channel> subscriptions = syncStates(uuid, subscribeStates, Channel::getSubscribe, SqlHelper::setSubscribed);
 
       Stream<StateWithId> followStates = getStates(_token, channels, FOLLOWS);
-      List<Channel> follows = syncStates(uuid, followStates, Channel::getFollow);
+      List<Channel> follows = syncStates(uuid, followStates, Channel::getFollow, SqlHelper::setFollowing);
 
       Integer subscriptionCount = subscriptions.size();
       // get highest upgrade
@@ -280,7 +279,7 @@ public class Validator {
       Permission perms = plugin.getPerms();
 
       for (Upgrade u : upgrades) {
-        if (u.getThreshold() >= subscriptions.size()) {
+        if (u.getThreshold() <= subscriptions.size()) {
           if (!perms.playerInGroup(null, player, u.getRank())) {
             perms.playerAddGroup(null, player, u.getRank());
           }
@@ -294,7 +293,7 @@ public class Validator {
     });
   }
 
-  private List<Channel> syncStates(UUID uuid, Stream<StateWithId> states, OptionSupplier optionSupplier) {
+  private List<Channel> syncStates(UUID uuid, Stream<StateWithId> states, OptionSupplier optionSupplier, Persistence persistence) {
     List<Channel> subscriptions = new ArrayList<>();
     SqlHelper helper = plugin.getSqlHelper();
     Permission perms = plugin.getPerms();
@@ -302,38 +301,33 @@ public class Validator {
       Boolean active = null;
       if (state.getState() == CheckState.YES) active = true;
       else if (state.getState() == CheckState.NO) active = false;
-      plugin.debug(uuid.toString() + " - " + state.getChannel().getName() + ": " + state.getState().toString(), "Sync");
+      Channel channel = state.getChannel();
+      plugin.debug(uuid.toString() + " - " + channel.getName() + ": " + state.getState().toString(), "Sync");
       if (active != null) {
-        helper.setSubscribed(uuid, state.getChannel().getName(), active);
-        OfflinePlayer player = Bukkit.getOfflinePlayer(uuid);
-        Options options = optionSupplier.supply(state.getChannel());
-        if (active) {
-          if (!perms.playerInGroup(null, player, options.getRank())) {
-            if (player.isOnline()) {
-              plugin.debug("Player is online, running event as normal", "Sync");
-              Player onlinePlayer = (Player) player;
-              Bukkit.getScheduler().runTask(plugin, () ->
-                  Bukkit.getPluginManager().callEvent(
-                      new PlayerSubscriptionEvent(onlinePlayer, state.getChannel())));
-            } else {
-              if (options.getEnabled()) {
-                if (!options.getRank().equalsIgnoreCase("none") && plugin.getPerms() != null) {
-                  plugin.getPerms().playerAddGroup(null, player, options.getRank());
-                }
-                for (String command : options.getCommands()) {
-                  Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command
-                      .replace("%name%", player.getName())
-                      .replace("%channel%", state.getChannel().getName())
-                      .replace("%channelid%", state.getId() + ""));
-                }
-              }
+        Player player = Bukkit.getPlayer(uuid);
+        if (player != null && player.isOnline()) { // player is online
+          Options options = optionSupplier.supply(channel);
+          Boolean wasActive = helper.isSubscribed(uuid, channel.getName());
+          persistence.persist(helper, uuid, channel.getName(), active);
+          if (!wasActive && active) {
+            Bukkit.getScheduler().runTask(plugin, () ->
+                Bukkit.getPluginManager().callEvent(
+                    new PlayerSubscriptionEvent(player, channel)));
+          } else if (wasActive && !active) {
+            // remove manually until event is implemented
+            if (perms.playerInGroup(null, player, options.getRank())) {
+              perms.playerRemoveGroup(null, player, options.getRank());
             }
+
+            for (String command : options.getRevokeCommands()) {
+              Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command
+                  .replace("%player%", player.getName())
+                  .replace("%channel%", channel.getName()));
+            }
+
           }
-          subscriptions.add(state.getChannel());
         } else {
-          if (perms.playerInGroup(null, player, options.getRank())) {
-            perms.playerRemoveGroup(null, player, options.getRank());
-          }
+          plugin.debug("Got subscription or follow but player is offline, ignoring.", "Sync");
         }
       }
     });
@@ -350,4 +344,7 @@ public class Validator {
     }
   }
 
+  public UUID getUUIDFromAuthState(UUID stateUUID) {
+    return this.userStates.getIfPresent(stateUUID);
+  }
 }
