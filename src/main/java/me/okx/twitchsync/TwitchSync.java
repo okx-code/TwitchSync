@@ -1,8 +1,12 @@
 package me.okx.twitchsync;
 
+import me.okx.twitchsync.data.Channel;
+import me.okx.twitchsync.data.Options;
+import me.okx.twitchsync.data.Upgrade;
 import me.okx.twitchsync.events.PlayerListener;
 import me.okx.twitchsync.util.SqlHelper;
 import net.milkbowl.vault.permission.Permission;
+import org.bukkit.configuration.serialization.ConfigurationSerialization;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -20,7 +24,15 @@ public class TwitchSync extends JavaPlugin {
   }
 
   @Override
+  public void onLoad() {
+    ConfigurationSerialization.registerClass(Options.class);
+    ConfigurationSerialization.registerClass(Channel.class);
+    ConfigurationSerialization.registerClass(Upgrade.class);
+  }
+
+  @Override
   public void onEnable() {
+    debug("Logging works.", "Testing");
     getConfig().options().copyDefaults(true);
     saveDefaultConfig();
     initValidator();
@@ -32,7 +44,7 @@ public class TwitchSync extends JavaPlugin {
     getCommand("twitchsync").setExecutor(new TwitchSyncCommand(this));
     getCommand("revoke").setExecutor(new RevokeCommand(this));
 
-    long time = 20*86400*getConfig().getInt("revoke-interval-days");
+    long time = 20*60*getConfig().getInt("revoke-interval-minutes");
     new Revoker(this).runTaskTimerAsynchronously(this, time, time);
 
     new Metrics(this);

@@ -1,8 +1,10 @@
 package me.okx.twitchsync.events;
 
 import me.okx.twitchsync.TwitchSync;
+import me.okx.twitchsync.data.Channel;
+import me.okx.twitchsync.data.OptionSupplier;
+import me.okx.twitchsync.data.Options;
 import org.bukkit.Bukkit;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -16,32 +18,33 @@ public class PlayerListener implements Listener {
 
   @EventHandler
   public void on(PlayerSubscriptionEvent e) {
-    handle("subscribe", e.getPlayer(), e.getChannelId());
+
+    plugin.debug("got new subscribe event", "Event");
+    handle(Channel::getSubscribe, e.getPlayer(), e.getChannel());
   }
 
   @EventHandler
   public void on(PlayerFollowEvent e) {
-    handle("follow", e.getPlayer(), e.getChannelId());
+    plugin.debug("got new follow event", "Event");
+    handle(Channel::getFollow, e.getPlayer(), e.getChannel());
   }
 
-  private void handle(String path, Player player, int channelId) {
-    ConfigurationSection config = plugin.getConfig().getConfigurationSection(path);
-    if(!config.getBoolean("enabled")) {
+  private void handle(OptionSupplier optionSupplier, Player player, Channel channel) {
+    Options options = optionSupplier.supply(channel);
+    if(!options.getEnabled()) {
+      plugin.debug("Event not processed, configuration section disabled.", "Event");
       return;
     }
 
-    String channel = plugin.getValidator().getChannelName(channelId);
-
-    String group = config.getString("rank");
+    String group = options.getRank();
     if (!group.equalsIgnoreCase("none") && plugin.getPerms() != null) {
       plugin.getPerms().playerAddGroup(null, player, group);
     }
 
-    for (String command : config.getStringList("commands")) {
+    for (String command : options.getCommands()) {
       Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command
-          .replace("%name%", player.getName())
-          .replace("%channel%", channel)
-          .replace("%channelid%", channelId + ""));
+          .replace("%player%", player.getName())
+          .replace("%channel%", channel.getName()));
     }
   }
 }
