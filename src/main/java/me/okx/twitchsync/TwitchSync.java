@@ -44,7 +44,7 @@ public class TwitchSync extends JavaPlugin {
     getCommand("twitchsync").setExecutor(new TwitchSyncCommand(this));
     getCommand("revoke").setExecutor(new RevokeCommand(this));
 
-    long time = 20*86400*getConfig().getInt("revoke-interval-days");
+    long time = 20*60*getConfig().getInt("revoke-interval-minutes");
     new Revoker(this).runTaskTimerAsynchronously(this, time, time);
 
     new Metrics(this);
@@ -92,21 +92,21 @@ public class TwitchSync extends JavaPlugin {
   }
 
   public <T> T debug(T message) {
-    if (getConfig().getBoolean("debug-mode") || true) {
+    if (getConfig().getBoolean("debug-mode")) {
       getLogger().log(Level.INFO, String.valueOf(message));
     }
     return message;
   }
 
   public <T> T debug(T message, String label) {
-    if (getConfig().getBoolean("debug-mode") || true) {
+    if (getConfig().getBoolean("debug-mode")) {
       getLogger().log(Level.INFO, label + ": " + message);
     }
     return message;
   }
 
   public void debug(Throwable throwable) {
-    if (getConfig().getBoolean("debug-mode") || true) {
+    if (getConfig().getBoolean("debug-mode")) {
       throwable.printStackTrace();
     }
   }

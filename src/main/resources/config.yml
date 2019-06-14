@@ -1,27 +1,15 @@
 # The channel name(s) to check for subscription/follows.
 channels:
   - ==: channel
-    name: kixstar
+    name: example
     subscribe:
       ==: options
       enabled: true
-      rank: kixsub
-      commands: []
-      revoke-commands: []
-    follow:
-      ==: options
-      enabled: false
-      rank: none
-      commands: []
-      revoke-commands: []
-  - ==: channel
-    name: thegodlynoob
-    subscribe:
-      ==: options
-      enabled: true
-      rank: godlysub
-      commands: []
-      revoke-commands: []
+      rank: subscriber
+      commands:
+        - 'broadcast %player% subscribed to %channel%'
+      revoke-commands:
+        - 'w %player% you are no longer subscribed to %channel%.'
     follow:
       ==: options
       enabled: false
@@ -73,9 +61,10 @@ messages:
 
 # revoke subscriber/follow rewards every X days
 # this will remove the rank and run revoke-commands
-revoke-interval-days: 1
+# defaults to twice a day
+revoke-interval-minutes: 720
 
 # Enable debugging information.
 # If you encounter an unexpected error please enable this
 # and send the results to the dev!
-debug-mode: true
+debug-mode: false

@@ -21,7 +21,9 @@ import me.okx.twitchsync.data.json.User;
 import me.okx.twitchsync.data.json.Users;
 import me.okx.twitchsync.data.sync.SyncMessage;
 import me.okx.twitchsync.data.sync.SyncResponse;
+import me.okx.twitchsync.events.PlayerFollowEvent;
 import me.okx.twitchsync.events.PlayerSubscriptionEvent;
+import me.okx.twitchsync.events.SyncEvent;
 import me.okx.twitchsync.util.SqlHelper;
 import me.okx.twitchsync.util.WebUtil;
 import net.milkbowl.vault.permission.Permission;
@@ -33,12 +35,12 @@ import org.bukkit.entity.Player;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.text.ParseException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -265,10 +267,10 @@ public class Validator {
       plugin.debug("ID: " + _token.getId(), "Sync");
 
       Stream<StateWithId> subscribeStates = getStates(_token, channels, SUBSCRIPTIONS);
-      List<Channel> subscriptions = syncStates(uuid, subscribeStates, Channel::getSubscribe, SqlHelper::setSubscribed);
+      List<Channel> subscriptions = syncStates(uuid, subscribeStates, Channel::getSubscribe, SqlHelper::setSubscribed, PlayerSubscriptionEvent.class);
 
       Stream<StateWithId> followStates = getStates(_token, channels, FOLLOWS);
-      List<Channel> follows = syncStates(uuid, followStates, Channel::getFollow, SqlHelper::setFollowing);
+      List<Channel> follows = syncStates(uuid, followStates, Channel::getFollow, SqlHelper::setFollowing, PlayerFollowEvent.class);
 
       Integer subscriptionCount = subscriptions.size();
       // get highest upgrade
@@ -293,7 +295,7 @@ public class Validator {
     });
   }
 
-  private List<Channel> syncStates(UUID uuid, Stream<StateWithId> states, OptionSupplier optionSupplier, Persistence persistence) {
+  private List<Channel> syncStates(UUID uuid, Stream<StateWithId> states, OptionSupplier optionSupplier, Persistence persistence, Class<? extends SyncEvent> eventClass) {
     List<Channel> subscriptions = new ArrayList<>();
     SqlHelper helper = plugin.getSqlHelper();
     Permission perms = plugin.getPerms();
@@ -304,6 +306,7 @@ public class Validator {
       Channel channel = state.getChannel();
       plugin.debug(uuid.toString() + " - " + channel.getName() + ": " + state.getState().toString(), "Sync");
       if (active != null) {
+        if (active) subscriptions.add(state.getChannel());
         Player player = Bukkit.getPlayer(uuid);
         if (player != null && player.isOnline()) { // player is online
           Options options = optionSupplier.supply(channel);
@@ -311,8 +314,14 @@ public class Validator {
           persistence.persist(helper, uuid, channel.getName(), active);
           if (!wasActive && active) {
             Bukkit.getScheduler().runTask(plugin, () ->
-                Bukkit.getPluginManager().callEvent(
-                    new PlayerSubscriptionEvent(player, channel)));
+            {
+              try {
+                SyncEvent event = eventClass.getConstructor(Player.class, Channel.class).newInstance(player, channel);
+                Bukkit.getPluginManager().callEvent(event);
+              } catch (NoSuchMethodException | IllegalAccessException | InstantiationException | InvocationTargetException e) {
+                e.printStackTrace();
+              }
+            });
           } else if (wasActive && !active) {
             // remove manually until event is implemented
             if (perms.playerInGroup(null, player, options.getRank())) {
