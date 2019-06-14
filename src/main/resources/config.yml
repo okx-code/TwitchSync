@@ -6,6 +6,7 @@ channels:
       ==: options
       enabled: true
       rank: subscriber
+      # %player% for the player name, %channel% for the channel name (as seen above)
       commands:
         - 'broadcast %player% subscribed to %channel%'
       revoke-commands:
@@ -14,12 +15,16 @@ channels:
       ==: options
       enabled: false
       rank: none
-      commands: []
-      revoke-commands: []
+      commands:
+        - 'broadcast %player% followed to %channel%'
+      revoke-commands:
+        - 'w %player% you are no longer following %channel%.'
 
 upgrades:
   - ==: upgrade
-    rank: ubersub
+    # rank to assign for this upgrade
+    rank: someupgrade
+    # amount of subscriptions needed for this upgrade
     threshold: 2
 
 # The client ID given by Twitch.
@@ -59,7 +64,7 @@ messages:
   invalid-url: "The URL is invalid"
   unknown-error: "An unknown error occurred. Please try again."
 
-# revoke subscriber/follow rewards every X days
+# revoke subscriber/follow rewards every X minutes
 # this will remove the rank and run revoke-commands
 # defaults to twice a day
 revoke-interval-minutes: 720
